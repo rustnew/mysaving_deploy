@@ -27,10 +27,6 @@ pub trait IMysaving<TContractState> {
     fn get_withdraw_history(self: @TContractState, account: ContractAddress) -> u256;
     fn get_withdrawable_amount(self: @TContractState, account: ContractAddress) -> u256;
     fn transfer_to(ref self: TContractState, recipient: ContractAddress, amount: u256);
-    // Nouvelles fonctions pour la pause
-    fn pause(ref self: TContractState);
-    fn unpause(ref self: TContractState);
-    fn is_paused(self: @TContractState) -> bool;
 }
 
 #[starknet::contract]
@@ -49,7 +45,6 @@ pub mod Mysaving {
         withdraw_history: Map<ContractAddress, u256>,
         last_deposit_time: Map<ContractAddress, u64>,
         owner: ContractAddress,
-        paused: bool, // Nouvel état pour gérer la pause
     }
 
     #[event]
@@ -59,8 +54,6 @@ pub mod Mysaving {
         Withdraw: Withdraw,
         Transfer: Transfer,
         OwnershipTransferred: OwnershipTransferred,
-        Paused: Paused, // Nouvel événement
-        Unpaused: Unpaused, // Nouvel événement
     }
 
     #[derive(Drop, starknet::Event)]
@@ -90,24 +83,11 @@ pub mod Mysaving {
         new_owner: ContractAddress,
     }
 
-    // Nouveaux événements pour la pause
-    #[derive(Drop, starknet::Event)]
-    struct Paused {
-        account: ContractAddress,
-    }
-
-    #[derive(Drop, starknet::Event)]
-    struct Unpaused {
-        account: ContractAddress,
-    }
-
     #[constructor]
     fn constructor(ref self: ContractState) {
         // Définir l'appelant comme propriétaire du contrat
         let caller = get_caller_address();
         self.owner.write(caller);
-        // Initialiser le contrat en état non-pausé
-        self.paused.write(false);
         self.emit(OwnershipTransferred { previous_owner: starknet::contract_address_const::<0>(), new_owner: caller });
     }
 
@@ -118,16 +98,6 @@ pub mod Mysaving {
             let caller = get_caller_address();
             let owner = self.owner.read();
             assert(caller == owner, 'Caller is not the owner');
-        }
-
-        // Modificateur pour vérifier si le contrat est en pause
-        fn assert_not_paused(self: @ContractState) {
-            assert(!self.paused.read(), 'Contract is paused');
-        }
-
-        // Modificateur pour vérifier si le contrat est déjà en pause
-        fn assert_paused(self: @ContractState) {
-            assert(self.paused.read(), 'Contract not paused');
         }
     }
 
@@ -162,9 +132,6 @@ pub mod Mysaving {
         }
 
         fn deposit(ref self: ContractState, amount: u256) {
-            // Vérifier que le contrat n'est pas en pause
-            OwnershipChecks::assert_not_paused(@self);
-            
             // Vérifier que le montant est positif
             assert(amount > 0_u256, 'Amount must be positive');
             
@@ -192,9 +159,6 @@ pub mod Mysaving {
         }
 
         fn withdraw(ref self: ContractState, shares: u256) {
-            // Vérifier que le contrat n'est pas en pause
-            OwnershipChecks::assert_not_paused(@self);
-            
             // Vérifier que le montant est positif
             assert(shares > 0_u256, 'Amount must be positive');
             
@@ -210,6 +174,8 @@ pub mod Mysaving {
             } else {
                 0_u256
             };
+            
+            // Vérifier que l'utilisateur peut retirer le montant demandé
             
             // Vérifier que l'utilisateur a un solde suffisant
             let current_balance = self.balance_of.read(caller);
@@ -231,9 +197,6 @@ pub mod Mysaving {
         }
 
         fn transfer_to(ref self: ContractState, recipient: ContractAddress, amount: u256) {
-            // Vérifier que le contrat n'est pas en pause
-            OwnershipChecks::assert_not_paused(@self);
-            
             // Vérifier que le montant est positif
             assert(amount > 0_u256, 'Amount must be positive');
             
@@ -257,42 +220,6 @@ pub mod Mysaving {
             // Émettre un événement de transfert
             self.emit(Transfer { from: caller, to: recipient, amount });
         }
-
-        // Nouvelles fonctions pour la pause
-        
-        // Mettre le contrat en pause - uniquement par le propriétaire
-        fn pause(ref self: ContractState) {
-            // Vérifier que l'appelant est le propriétaire
-            OwnershipChecks::assert_only_owner(@self);
-            
-            // Vérifier que le contrat n'est pas déjà en pause
-            OwnershipChecks::assert_not_paused(@self);
-            
-            // Mettre le contrat en pause
-            self.paused.write(true);
-            
-            // Émettre un événement de pause
-            self.emit(Paused { account: get_caller_address() });
-        }
-        
-        // Retirer la pause du contrat - uniquement par le propriétaire
-        fn unpause(ref self: ContractState) {
-            // Vérifier que l'appelant est le propriétaire
-            OwnershipChecks::assert_only_owner(@self);
-            
-            // Vérifier que le contrat est actuellement en pause
-            OwnershipChecks::assert_paused(@self);
-            
-            // Retirer la pause du contrat
-            self.paused.write(false);
-            
-            // Émettre un événement de retrait de pause
-            self.emit(Unpaused { account: get_caller_address() });
-        }
-        
-        // Vérifier si le contrat est en pause
-        fn is_paused(self: @ContractState) -> bool {
-            self.paused.read()
-        }
     }
 }
+
